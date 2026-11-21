@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 信息收集工具（本地）</title>
+  <style>
+    :root {
+      --border: #d9dee5;
+      --bg: #f5f7fa;
+      --card: #ffffff;
+      --text: #1f2733;
+      --muted: #6b7684;
+      --primary: #2f6fed;
+      --primary-dark: #245bc4;
+      --ok: #1f9d63;
+      --warn: #c47f17;
+      --err: #d64545;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Microsoft YaHei", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .wrap { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px 20px;
+      margin-bottom: 18px;
+    }
+    .card h2 { font-size: 16px; margin: 0 0 14px; }
+    .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+    label { font-size: 13px; color: var(--muted); }
+    input[type="text"] {
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 14px;
+      min-width: 180px;
+    }
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      background: var(--primary);
+      color: #fff;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    button:hover { background: var(--primary-dark); }
+    button.secondary { background: #eef1f5; color: var(--text); }
+    button.secondary:hover { background: #e2e7ee; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 600; }
+    .status-pending { color: var(--warn); }
+    .status-analyzed { color: var(--ok); }
+    .muted { color: var(--muted); }
+    .ok { color: var(--ok); }
+    .err { color: var(--err); }
+    pre {
+      background: #f0f3f7;
+      border-radius: 8px;
+      padding: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 13px;
+      line-height: 1.6;
+      max-height: 320px;
+      overflow: auto;
+    }
+    .log { font-size: 13px; line-height: 1.7; }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .hint { font-size: 12px; color: var(--muted); }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AI 信息收集工具（本地）</h1>
+  <div class="sub">数据与模型均在本机处理；页面仅通过本地接口调用现有流程。</div>
+
+  <!-- 模型状态 -->
+  <div class="card">
+    <h2>模型状态</h2>
+    <div class="row">
+      <button id="btn-doctor" onclick="loadDoctor()">检查状态</button>
+      <span id="doctor-summary" class="muted">尚未检查</span>
+    </div>
+    <div id="doctor-detail" style="margin-top:12px; font-size:13px; line-height:1.8;"></div>
+  </div>
+
+  <!-- 目标与渠道发现 -->
+  <div class="card">
+    <h2>目标与渠道发现</h2>
+    <div class="row">
+      <div class="field">
+        <label>对象名（必填）</label>
+        <input type="text" id="target" placeholder="国家 / 人物 / 机构">
+      </div>
+      <div class="field">
+        <label>类型（可选）</label>
+        <input type="text" id="category" placeholder="财政 / 结构 / 历史">
+      </div>
+      <div class="field">
+        <label>线索（可选，逗号分隔）</label>
+        <input type="text" id="hints" placeholder="如：官网, 维基百科">
+      </div>
+      <button onclick="discover()">发现站点</button>
+    </div>
+    <div id="discover-msg" class="hint" style="margin-top:10px;"></div>
+  </div>
+
+  <!-- 站点台账 -->
+  <div class="card">
+    <h2>站点台账</h2>
+    <div class="row" style="margin-bottom:10px;">
+      <button class="secondary" onclick="loadSites()">刷新</button>
+      <span id="sites-count" class="muted"></span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>状态</th><th>对象</th><th>类型</th><th>最近分析时间</th><th>网址</th><th>备注</th>
+        </tr>
+      </thead>
+      <tbody id="sites-body">
+        <tr><td colspan="6" class="muted">暂无站点</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 流程操作 -->
+  <div class="card">
+    <h2>收集与分析</h2>
+    <div class="row">
+      <button id="btn-collect" onclick="collect()">抓取收集</button>
+      <button id="btn-analyze" onclick="analyze()">归纳分析</button>
+    </div>
+    <div id="action-log" class="log" style="margin-top:12px;"></div>
+  </div>
+
+  <!-- 分析结果 -->
+  <div class="card">
+    <h2>分析结果</h2>
+    <div class="row" style="margin-bottom:10px;">
+      <select id="result-select" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; min-width:260px;"></select>
+      <button class="secondary" onclick="showSelectedResult()">查看历史结果</button>
+    </div>
+    <div id="result-meta" class="hint" style="margin-bottom:10px;"></div>
+    <pre id="result-content">尚未生成分析结果。</pre>
+  </div>
+</div>
+
+<script>
+const STATUS_TEXT = { pending: "待分析", analyzed: "已分析" };
+
+async function request(url, options) {
+  const resp = await fetch(url, options);
+  return resp.json();
+}
+
+function log(msg, cls) {
+  const box = document.getElementById("action-log");
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  const t = new Date().toLocaleTimeString();
+  line.textContent = `[${t}] ${msg}`;
+  box.appendChild(line);
+}
+
+// ===== 模型状态 =====
+async function loadDoctor() {
+  const btn = document.getElementById("btn-doctor");
+  btn.disabled = true;
+  document.getElementById("doctor-summary").textContent = "检查中…";
+  try {
+    const res = await request("/api/doctor");
+    const d = res.data || {};
+    document.getElementById("doctor-summary").textContent = d.reachable
+      ? (d.chat_ok ? "模型可达，对话正常" : "模型可达，对话未通过")
+      : "模型不可达";
+    document.getElementById("doctor-summary").className = d.reachable ? "ok" : "err";
+
+    const models = (d.models || []).map(m => `<li>${escapeHtml(m)}</li>`).join("") || "<li class='muted'>（无）</li>";
+    document.getElementById("doctor-detail").innerHTML = `
+      <div>提供方：${escapeHtml(d.provider)} ｜ 端点：${escapeHtml(d.llm_base_url)} ｜ 模型：${escapeHtml(d.llm_model)}</div>
+      <div>数据目录：${escapeHtml(d.data_dir)} ｜ 台账站点数：${d.site_count}</div>
+      <div>目录就绪：raw=${d.dirs.raw}，output=${d.dirs.output}，sites=${d.dirs.sites}</div>
+      <div>可用模型：<ul style="margin:4px 0;">${models}</ul></div>
+      <div class="${d.chat_ok ? 'ok' : 'err'}">${escapeHtml(d.message || "")}${d.elapsed != null ? `（${d.elapsed}s）` : ""}</div>
+      ${d.reply ? `<div class="muted">回复：${escapeHtml(d.reply)}</div>` : ""}
+    `;
+  } catch (e) {
+    document.getElementById("doctor-summary").textContent = "检查失败";
+    document.getElementById("doctor-summary").className = "err";
+    document.getElementById("doctor-detail").textContent = String(e);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ===== 站点台账 =====
+async function loadSites() {
+  const res = await request("/api/sites");
+  const sites = res.data || [];
+  document.getElementById("sites-count").textContent = `共 ${sites.length} 个站点`;
+  const body = document.getElementById("sites-body");
+  if (!sites.length) {
+    body.innerHTML = '<tr><td colspan="6" class="muted">暂无站点</td></tr>';
+    return;
+  }
+  body.innerHTML = sites.map(s => `
+    <tr>
+      <td><span class="tag status-${s.status}">${STATUS_TEXT[s.status] || s.status}</span></td>
+      <td>${escapeHtml(s.target)}</td>
+      <td>${escapeHtml(s.category)}</td>
+      <td>${s.last_analyzed_at || "-"}</td>
+      <td>${escapeHtml(s.url)}</td>
+      <td>${escapeHtml(s.note || "")}</td>
+    </tr>
+  `).join("");
+}
+
+// ===== 渠道发现 =====
+async function discover() {
+  const target = document.getElementById("target").value.trim();
+  const category = document.getElementById("category").value.trim();
+  const hintsRaw = document.getElementById("hints").value.trim();
+  const msg = document.getElementById("discover-msg");
+  if (!target) {
+    msg.className = "err";
+    msg.textContent = "对象名必填。";
+    return;
+  }
+  const hints = hintsRaw ? hintsRaw.split(/[,，、]/).map(h => h.trim()).filter(Boolean) : [];
+  msg.className = "hint";
+  msg.textContent = "模型推荐中…";
+  try {
+    const res = await request("/api/discover", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target, category, hints }),
+    });
+    msg.className = res.ok ? "ok" : "err";
+    msg.textContent = res.message;
+    if (res.ok) loadSites();
+  } catch (e) {
+    msg.className = "err";
+    msg.textContent = String(e);
+  }
+}
+
+// ===== 抓取收集 =====
+async function collect() {
+  const btn = document.getElementById("btn-collect");
+  btn.disabled = true;
+  log("开始抓取收集…");
+  try {
+    const res = await request("/api/collect", { method: "POST" });
+    log(res.message, res.ok ? "ok" : "err");
+    (res.data || []).forEach(d => log(`  - ${d.title} → ${d.file_path}`));
+    loadSites();
+  } catch (e) {
+    log(String(e), "err");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ===== 归纳分析 =====
+async function analyze() {
+  const btn = document.getElementById("btn-analyze");
+  btn.disabled = true;
+  log("开始归纳分析（模型推理可能需要一些时间）…");
+  try {
+    const res = await request("/api/analyze", { method: "POST" });
+    log(res.message, res.ok ? "ok" : "err");
+    if (res.ok && res.data) {
+      const d = res.data;
+      document.getElementById("result-meta").textContent =
+        `${d.target} / ${d.category} ｜ 来源文件 ${d.source_files.length} 份 ｜ ${d.file_path || ""}`;
+      document.getElementById("result-content").textContent = d.summary;
+      loadResults();
+    }
+  } catch (e) {
+    log(String(e), "err");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ===== 历史结果 =====
+async function loadResults() {
+  const res = await request("/api/results");
+  const files = res.data || [];
+  const sel = document.getElementById("result-select");
+  sel.innerHTML = files.map(f => `<option value="${escapeHtml(f)}">${escapeHtml(f)}</option>`).join("");
+}
+
+async function showSelectedResult() {
+  const sel = document.getElementById("result-select");
+  if (!sel.value) return;
+  const res = await request("/api/result?name=" + encodeURIComponent(sel.value));
+  if (res.ok) {
+    document.getElementById("result-meta").textContent = res.data.name;
+    document.getElementById("result-content").textContent = res.data.content;
+  } else {
+    document.getElementById("result-content").textContent = res.message;
+  }
+}
+
+function escapeHtml(text) {
+  return String(text ?? "").replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+// 页面加载：拉取台账与历史结果，自动检查一次模型状态
+loadSites();
+loadResults();
+loadDoctor();
+</script>
+</body>
+</html>

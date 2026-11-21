@@ -28,6 +28,7 @@
 | 模型调试 | Cherry Studio | 用于对话调试、提示词与效果对比 |
 | 代码编辑 | VS Code | 开发环境 |
 | 版本管理 | Git + GitHub | 远程仓库：`https://github.com/yumeng2050/ai_tool` |
+| 本地界面 | FastAPI + 原生页面 | 本机回环访问的简易 Web 界面，复用现有 CLI / Pipeline 流程 |
 
 ### 模型接入思路
 
@@ -41,6 +42,7 @@
 ai_tool/
 ├── README.md              # 项目说明（本文件）
 ├── requirements.txt       # Python 依赖
+├── start.bat              # 双击一键启动本地 Web 界面
 ├── .env.example           # 配置模板（模型端点、模型名等）
 ├── docs/
 │   └── architecture.md    # 分层架构、模块职责与扩展点说明
@@ -53,7 +55,8 @@ ai_tool/
 │   ├── crawler/           # 网页抓取与正文提取（抽象接口）
 │   ├── analyzer/          # 资料分析、增量分析（抽象接口 + LLM 归纳实现 + 提示词模板）
 │   ├── storage/           # 站点台账仓储接口 + 文件路径命名约定
-│   └── pipeline/          # 流程编排，串联各阶段并注入组件
+│   ├── pipeline/          # 流程编排，串联各阶段并注入组件
+│   └── web/               # 本地 Web 界面：FastAPI 接口 + 静态单页
 └── data/                  # 运行数据（不纳入 Git，含 .gitkeep 占位）
     ├── sites/             # 站点台账
     ├── raw/               # 抓取的原始资料
@@ -118,7 +121,17 @@ ai_tool/
    python -m src.cli doctor
    ```
 
-6. 在 VS Code 中开发与运行；`doctor` / `discover` / `collect` / `analyze` 已接入，`incremental`（增量二次分析）待后续接线。
+6. 启动本地 Web 界面（二选一）：
+   - 双击项目根目录 `start.bat`，会自动启动服务并打开浏览器；
+   - 或命令行执行：
+
+     ```powershell
+     python -m src.web.server
+     ```
+
+     然后访问 `http://127.0.0.1:8000`（仅本机访问）。
+
+7. 命令行方式同样可用：`doctor` / `discover` / `collect` / `analyze` 已接入，`incremental`（增量二次分析）待后续接线。
 
 ## 六、开发路线图
 
@@ -129,5 +142,6 @@ ai_tool/
 - [x] 渠道发现：LLM 生成候选站点并入库
 - [x] 全量资料分析：读取 `data/raw/`、LLM 归纳、结果落盘 `data/output/` 并回写台账状态
 - [x] 结果归纳整理与来源溯源（结果附来源文件清单）
+- [x] 本地简易 Web 界面：模型状态、目标发现、站点台账、抓取收集、分析结果查看，双击 `start.bat` 启动
 - [ ] 增量（二次）分析：CLI 接入，按 `last_analyzed_at` 过滤站点更新内容
 - [ ] 命令行 / 交互入口串联通车（增量命令待接）

@@ -39,6 +39,7 @@
 | 持久化 | `src/storage/` | 站点台账仓储接口、SQLite 实现、文件路径与命名约定 | 接口 + SQLite 实现 + 命名约定 |
 | 流程编排 | `src/pipeline/` | 串联三阶段，注入各组件 | 已实现（含 `analyze_all` 全量归纳与台账回写） |
 | 命令行 | `src/cli.py` | 子命令入口、环境检查 | 已接入 `doctor` / `discover` / `collect` / `analyze` |
+| 本地 Web | `src/web/` | FastAPI 接口 + 静态单页，复用 Pipeline 流程，仅本机回环访问 | 已实现 |
 
 ## 四、数据流（对应业务四阶段）
 
@@ -84,8 +85,9 @@
 3. ~~抓取实现~~（已完成：HTTP 抓取 + 正文提取 + 落盘 `data/raw/`，台账记录来源文件）。
 4. ~~渠道发现~~（已完成：LLM 推荐站点、JSON 解析容错、去重入库）。
 5. ~~分析实现~~（已完成：提示词模板 + 归纳整理 + 结果落盘 `data/output/` + 来源溯源，台账回写已分析状态与时间）。
-6. 增量分析：CLI 接入 `incremental`，按 `last_analyzed_at` 过滤更新内容（分析器增量方法已预留）。
-7. 测试与错误处理、日志规范。
+6. ~~本地 Web 界面~~（已完成：FastAPI 接口 + 静态单页，复用 Pipeline；`start.bat` 一键启动，仅绑定 `127.0.0.1`）。
+7. 增量分析：CLI 接入 `incremental`，按 `last_analyzed_at` 过滤更新内容（分析器增量方法已预留）。
+8. 测试与错误处理、日志规范。
 
 ## 八、目录一览
 
@@ -99,7 +101,8 @@ src/
 ├── crawler/               # 抓取：base / http_crawler
 ├── analyzer/              # 分析：base / llm_analyzer / prompts
 ├── storage/               # 仓储接口 + SQLite 实现 + 路径命名 + 落盘
-└── pipeline/orchestrator.py # 流程编排
+├── pipeline/orchestrator.py # 流程编排
+└── web/                   # 本地 Web：server.py 接口 + static/index.html 单页
 data/                      # 运行数据（不纳入 Git，含 .gitkeep 占位）
 docs/                      # 设计文档
 ```
