@@ -22,14 +22,25 @@ def _format_document(doc: RawDocument) -> str:
     )
 
 
-def build_analyze_prompt(documents: list[RawDocument]) -> str:
-    """全量归纳提示词。"""
+def build_analyze_prompt(
+    documents: list[RawDocument], instructions: str = ""
+) -> str:
+    """全量归纳提示词。``instructions`` 为用户提出的具体要求。"""
     target = documents[0].target or "未指定"
     category = documents[0].category or "未指定"
     blocks = "\n\n---\n\n".join(_format_document(doc) for doc in documents)
+
+    requirement = ""
+    if instructions.strip():
+        requirement = (
+            "\n用户对本次整理的具体要求（必须优先满足）：\n"
+            f"{instructions.strip()}\n"
+        )
+
     return (
         f"关注对象：{target}\n"
-        f"资料类型：{category}\n\n"
+        f"资料类型：{category}\n"
+        f"{requirement}\n"
         f"以下是原始资料：\n\n{blocks}\n\n"
         "请归纳整理这些资料：\n"
         "1. 分点总结关键事实与结论；\n"

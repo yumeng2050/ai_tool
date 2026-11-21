@@ -17,7 +17,7 @@ from typing import Optional
 from src.analyzer import DocumentAnalyzer
 from src.collector import ChannelCollector
 from src.config.settings import AppSettings
-from src.crawler import Crawler
+from src.crawler import Crawler, probe_url
 from src.llm import LLMProvider
 from src.models.domain import (
     AnalysisResult,
@@ -70,14 +70,43 @@ class Pipeline:
         hints: list[str] | None = None,
     ) -> list[SiteRecord]:
         """发现候选站点并把新站点写入台账。"""
+        accepted, _rejected = self.discover_with_report(target, hints)
+        return accepted
+
+    def discover_with_report(
+        self,
+        target: Target,
+        hints: list[str] | None = None,
+    ) -> tuple[list[SiteRecord], list[dict]]:
+        """发现候选站点，逐个验证网址真实可达后再入库。
+
+        模型可能凭记忆编造网址，这里对每个候选地址做一次真实探测，
+        不可访问、非网页或疑似占位地址直接丢弃，并返回丢弃原因。
+
+        :return: ``(已入库站点, 被丢弃站点与原因)``
+        """
         collector = self._require(self.collector, "ChannelCollector")
         repo = self._require(self.repository, "SiteRepository")
 
         sites = collector.discover(target, hints)
+        accepted: list[SiteRecord] = []
+        rejected: list[dict] = []
+
         for site in sites:
-            if repo.get(site.url) is None:
-                repo.add(site)
-        return sites
+            ok, reason = probe_url(site.url)
+            if not ok:
+                logger.info("网址验证未通过，丢弃 %s：%s", site.url, reason)
+                rejected.append({"url": site.url, "reason": reason})
+                continue
+
+            if repo.get(site.url) is not None:
+                rejected.append({"url": site.url, "reason": "台账中已存在"})
+                continue
+
+            repo.add(site)
+            accepted.append(site)
+
+        return accepted, rejected
 
     # ===== 阶段二：抓取收集 =====
 
@@ -131,12 +160,12 @@ class Pipeline:
 
     # ===== 阶段三：分析归纳 =====
 
-    def run_analysis(self, documents: list[RawDocument]):
+    def run_analysis(self, documents: list[RawDocument], instructions: str = ""):
         """对一批原始资料做归纳整理。"""
         analyzer = self._require(self.analyzer, "DocumentAnalyzer")
-        return analyzer.analyze(documents)
+        return analyzer.analyze(documents, instructions)
 
-    def analyze_all(self) -> Optional[AnalysisResult]:
+    def analyze_all(self, instructions: str = "") -> Optional[AnalysisResult]:
         """读取 ``data/raw/`` 与用户自备资料，归纳整理并保存结果，更新台账状态。
 
         网页抓取资料与 ``data/user_files/`` 下的用户资料会一起参与归纳；
@@ -153,7 +182,7 @@ class Pipeline:
         if not documents:
             return None
 
-        result = analyzer.analyze(documents)
+        result = analyzer.analyze(documents, instructions)
         save_analysis_result(self.settings, result)
 
         # 只把网页抓取资料对应的站点标记为已分析，本地文件不涉及台账

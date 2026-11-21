@@ -28,15 +28,21 @@ class LLMDocumentAnalyzer(DocumentAnalyzer):
         self.llm = llm
         self.settings = settings
 
-    def analyze(self, documents: list[RawDocument]) -> AnalysisResult:
+    def analyze(
+        self, documents: list[RawDocument], instructions: str = ""
+    ) -> AnalysisResult:
         if not documents:
             raise ValueError("待分析资料为空")
 
         messages = [
             make_message("system", SYSTEM_PROMPT),
-            make_message("user", build_analyze_prompt(documents)),
+            make_message("user", build_analyze_prompt(documents, instructions)),
         ]
-        summary = self.llm.chat(messages, temperature=self.settings.temperature)
+        summary = self.llm.chat(
+            messages,
+            temperature=self.settings.temperature,
+            max_tokens=self.settings.max_tokens,
+        )
         source_files = [doc.file_path for doc in documents if doc.file_path]
         first = documents[0]
         return AnalysisResult(

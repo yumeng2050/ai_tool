@@ -26,8 +26,12 @@ class LLMProvider(ABC):
         *,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        model: Optional[str] = None,
     ) -> str:
-        """同步对话，返回模型输出的文本内容。"""
+        """同步对话，返回模型输出的文本内容。
+
+        ``model`` 为空时使用配置中的默认模型。
+        """
 
     # ===== 预留扩展点 =====
 

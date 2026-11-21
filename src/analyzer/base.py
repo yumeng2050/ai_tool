@@ -18,8 +18,16 @@ class DocumentAnalyzer(ABC):
     """资料分析接口。"""
 
     @abstractmethod
-    def analyze(self, documents: list[RawDocument]) -> AnalysisResult:
-        """对一批资料做归纳整理，结果需可溯源到来源文件。"""
+    def analyze(
+        self,
+        documents: list[RawDocument],
+        instructions: str = "",
+    ) -> AnalysisResult:
+        """对一批资料做归纳整理，结果需可溯源到来源文件。
+
+        ``instructions`` 为用户在归纳前提出的具体要求（如关注点、输出格式），
+        实现应尽量遵循。
+        """
 
     @abstractmethod
     def analyze_incremental(

@@ -57,6 +57,28 @@
     button.secondary { background: #eef1f5; color: var(--text); }
     button.secondary:hover { background: #e2e7ee; }
     button:disabled { opacity: .5; cursor: not-allowed; }
+    .sel {
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 13px;
+      min-width: 220px;
+      background: #fff;
+    }
+    #chat-log {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      height: 200px;
+      overflow-y: auto;
+      font-size: 13px;
+      line-height: 1.7;
+      background: #fbfcfd;
+      margin-bottom: 10px;
+    }
+    .msg-user { color: #245bc4; margin: 6px 0; }
+    .msg-ai { color: #1f2733; margin: 6px 0; }
+    .msg-sys { color: var(--muted); margin: 6px 0; font-size: 12px; }
     textarea {
       padding: 8px 10px;
       border: 1px solid var(--border);
@@ -104,6 +126,29 @@
       <span id="doctor-summary" class="muted">尚未检查</span>
     </div>
     <div id="doctor-detail" style="margin-top:12px; font-size:13px; line-height:1.8;"></div>
+  </div>
+
+  <!-- 分步模型选择 -->
+  <div class="card">
+    <h2>每步使用的模型</h2>
+    <div class="row">
+      <div class="field">
+        <label>渠道发现</label>
+        <select id="model-discover" class="sel"></select>
+      </div>
+      <div class="field">
+        <label>归纳分析</label>
+        <select id="model-analyze" class="sel"></select>
+      </div>
+      <div class="field">
+        <label>对话</label>
+        <select id="model-chat" class="sel"></select>
+      </div>
+      <button onclick="saveModels()">保存选择</button>
+      <button class="secondary" onclick="loadModels()">刷新列表</button>
+    </div>
+    <div id="models-msg" class="hint" style="margin-top:10px;"></div>
+    <div class="hint" style="margin-top:6px;">选择会自动记录到本地配置文件，重启后仍生效。</div>
   </div>
 
   <!-- 目标与渠道发现 -->
@@ -179,9 +224,33 @@
     </table>
   </div>
 
+  <!-- 分析前对话 -->
+  <div class="card">
+    <h2>分析前先提要求（和 AI 对话）</h2>
+    <div id="chat-log"><div class="msg-sys">说说你希望怎么整理：关注哪些方面、要不要对比、输出成什么格式……AI 会帮你把要求说清楚。</div></div>
+    <div class="row" style="align-items:flex-start;">
+      <div class="field" style="flex:1; min-width:260px;">
+        <label>你的要求</label>
+        <textarea id="chat-input" rows="2" placeholder="例如：只关注财政收支，按年份列成表格，标注数据来源"></textarea>
+      </div>
+      <button onclick="sendChat()">发送</button>
+      <button class="secondary" onclick="resetChat()">清空对话</button>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <button class="secondary" onclick="useChatAsInstructions()">把对话整理成「分析要求」</button>
+      <span id="chat-msg" class="hint"></span>
+    </div>
+  </div>
+
   <!-- 流程操作 -->
   <div class="card">
     <h2>收集与分析</h2>
+    <div class="row" style="margin-bottom:10px; align-items:flex-start;">
+      <div class="field" style="flex:1; min-width:280px;">
+        <label>分析要求（可留空，会带进归纳提示词）</label>
+        <textarea id="instructions" rows="3" placeholder="例如：按财政收支分类归纳，保留金额与年份，每个结论标注来源文件"></textarea>
+      </div>
+    </div>
     <div class="row">
       <button id="btn-collect" onclick="collect()">抓取收集</button>
       <button id="btn-analyze" onclick="analyze()">归纳分析</button>
@@ -293,7 +362,10 @@ async function discover() {
     });
     msg.className = res.ok ? "ok" : "err";
     msg.textContent = res.message;
-    if (res.ok) loadSites();
+    if (res.ok) {
+      loadSites();
+      (res.rejected || []).forEach(r => log(`  ✕ 丢弃 ${r.url} —— ${r.reason}`, "muted"));
+    }
   } catch (e) {
     msg.className = "err";
     msg.textContent = String(e);
@@ -384,10 +456,16 @@ async function openUserDir() {
 // ===== 归纳分析 =====
 async function analyze() {
   const btn = document.getElementById("btn-analyze");
+  const instructions = document.getElementById("instructions").value.trim();
   btn.disabled = true;
   log("开始归纳分析（模型推理可能需要一些时间）…");
+  if (instructions) log(`已带上分析要求：${instructions.slice(0, 60)}${instructions.length > 60 ? "…" : ""}`);
   try {
-    const res = await request("/api/analyze", { method: "POST" });
+    const res = await request("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ instructions }),
+    });
     log(res.message, res.ok ? "ok" : "err");
     if (res.ok && res.data) {
       const d = res.data;
@@ -401,6 +479,117 @@ async function analyze() {
   } finally {
     btn.disabled = false;
   }
+}
+
+// ===== 分步模型选择 =====
+async function loadModels() {
+  const msg = document.getElementById("models-msg");
+  msg.textContent = "读取模型列表…";
+  try {
+    const res = await request("/api/models");
+    const d = res.data || {};
+    const models = d.models || [];
+    const steps = ["discover", "analyze", "chat"];
+    steps.forEach(step => {
+      const sel = document.getElementById("model-" + step);
+      const current = (d.choices && d.choices[step]) || d.default_model;
+      sel.innerHTML = models.map(m =>
+        `<option value="${escapeHtml(m)}"${m === current ? " selected" : ""}>${escapeHtml(m)}</option>`
+      ).join("") || `<option value="">（无可选模型）</option>`;
+    });
+    msg.className = d.reachable ? "hint" : "err";
+    msg.textContent = d.reachable
+      ? `共 ${models.length} 个可用模型；当前默认：${d.default_model}`
+      : `无法读取模型列表：${d.message}`;
+  } catch (e) {
+    msg.className = "err";
+    msg.textContent = String(e);
+  }
+}
+
+async function saveModels() {
+  const msg = document.getElementById("models-msg");
+  const steps = ["discover", "analyze", "chat"];
+  try {
+    for (const step of steps) {
+      const model = document.getElementById("model-" + step).value;
+      const res = await request("/api/model-choice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ step, model }),
+      });
+      if (!res.ok) throw new Error(res.message);
+    }
+    msg.className = "ok";
+    msg.textContent = "已保存，后续各阶段会使用对应模型。";
+  } catch (e) {
+    msg.className = "err";
+    msg.textContent = String(e);
+  }
+}
+
+// ===== 分析前对话 =====
+let chatHistory = [];
+
+function renderChat() {
+  const log = document.getElementById("chat-log");
+  if (!chatHistory.length) {
+    log.innerHTML = '<div class="msg-sys">说说你希望怎么整理：关注哪些方面、要不要对比、输出成什么格式……AI 会帮你把要求说清楚。</div>';
+    return;
+  }
+  log.innerHTML = chatHistory.map(m =>
+    `<div class="${m.role === "user" ? "msg-user" : "msg-ai"}">${m.role === "user" ? "你" : "AI"}：${escapeHtml(m.content)}</div>`
+  ).join("");
+  log.scrollTop = log.scrollHeight;
+}
+
+async function sendChat() {
+  const input = document.getElementById("chat-input");
+  const text = input.value.trim();
+  const msg = document.getElementById("chat-msg");
+  if (!text) return;
+  chatHistory.push({ role: "user", content: text });
+  input.value = "";
+  renderChat();
+  msg.className = "hint";
+  msg.textContent = "AI 正在回复…";
+  try {
+    const res = await request("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: chatHistory }),
+    });
+    if (res.ok) {
+      chatHistory.push({ role: "assistant", content: res.data.reply });
+      renderChat();
+      msg.textContent = "";
+    } else {
+      msg.className = "err";
+      msg.textContent = res.message;
+    }
+  } catch (e) {
+    msg.className = "err";
+    msg.textContent = String(e);
+  }
+}
+
+function resetChat() {
+  chatHistory = [];
+  renderChat();
+  document.getElementById("chat-msg").textContent = "";
+}
+
+function useChatAsInstructions() {
+  const userTexts = chatHistory.filter(m => m.role === "user").map(m => m.content);
+  const target = document.getElementById("instructions");
+  if (!userTexts.length) {
+    document.getElementById("chat-msg").className = "err";
+    document.getElementById("chat-msg").textContent = "还没有对话内容。";
+    return;
+  }
+  target.value = userTexts.join("\n");
+  document.getElementById("chat-msg").className = "ok";
+  document.getElementById("chat-msg").textContent = "已填入「分析要求」，可再手动补充。";
 }
 
 // ===== 历史结果 =====
@@ -433,6 +622,7 @@ function escapeHtml(text) {
 loadSites();
 loadResults();
 loadUserFiles();
+loadModels();
 loadDoctor();
 </script>
 </body>

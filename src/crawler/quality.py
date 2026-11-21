@@ -124,3 +124,69 @@ def check_document(
         return False, "疑似导航 / 菜单页，无有效正文"
 
     return True, ""
+
+
+# ===== 网址真实可达性验证 =====
+
+# 模型编造的常见占位域名 / 路径特征
+FAKE_URL_PATTERNS: tuple[str, ...] = (
+    "example.com",
+    "example.org",
+    "your-domain",
+    "domain.com",
+    "xxx.com",
+    "placeholder",
+    "<",
+    ">",
+    "{",
+    "}",
+)
+
+
+def looks_fake_url(url: str) -> bool:
+    """网址是否明显是模型编造的占位地址。"""
+    text = (url or "").lower()
+    return any(pattern in text for pattern in FAKE_URL_PATTERNS)
+
+
+def probe_url(url: str, timeout: float = 10.0) -> tuple[bool, str]:
+    """实际请求一次网址，判断是否真实可访问且是网页。
+
+    只做轻量 GET（读取前若干字节即可），不解析正文。
+
+    :return: ``(是否有效, 说明)``
+    """
+    if not url.startswith(("http://", "https://")):
+        return False, "网址格式不正确"
+
+    if is_blocked_domain(url):
+        return False, "域名在黑名单内"
+
+    if looks_fake_url(url):
+        return False, "疑似模型编造的占位地址"
+
+    try:
+        import httpx
+    except ImportError:
+        # 没有 httpx 时不做网络验证，放行由抓取阶段再判断
+        return True, "（未安装 httpx，跳过验证）"
+
+    try:
+        response = httpx.get(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; ai_tool/1.0)"},
+            timeout=timeout,
+            follow_redirects=True,
+        )
+    except Exception as exc:  # noqa: BLE001 - 网络异常统一视为不可达
+        return False, f"无法访问：{type(exc).__name__}"
+
+    if response.status_code >= 400:
+        return False, f"HTTP {response.status_code}"
+
+    content_type = response.headers.get("content-type", "")
+    if "html" not in content_type and "text" not in content_type:
+        return False, f"非网页内容（{content_type or '未知类型'}）"
+
+    return True, "可访问"
+

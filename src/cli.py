@@ -51,7 +51,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_discover.add_argument("--hint", action="append", help="额外站点线索，可重复传入")
 
     sub.add_parser("collect", help="抓取未分析站点")
-    sub.add_parser("analyze", help="分析已收集资料")
+    p_analyze = sub.add_parser("analyze", help="分析已收集资料")
+    p_analyze.add_argument(
+        "--instructions", help="归纳要求，如关注重点、输出格式（可选）", default=""
+    )
     sub.add_parser("incremental", help="增量分析已有站点更新")
     return parser
 
@@ -164,8 +167,19 @@ def cmd_list_sites(settings: AppSettings) -> int:
     return 0
 
 
-def build_pipeline(settings: AppSettings) -> Pipeline:
-    """装配当前已实现的组件：模型、仓储、抓取器、渠道发现器、分析器。"""
+def build_pipeline(settings: AppSettings, step: str | None = None) -> Pipeline:
+    """装配当前已实现的组件：模型、仓储、抓取器、渠道发现器、分析器。
+
+    ``step`` 指定本流程阶段（discover / analyze），用于选用该阶段已记录的模型。
+    """
+    from dataclasses import replace
+
+    from src.config.model_choice import model_for_step
+
+    if step:
+        model = model_for_step(settings, step)
+        settings = replace(settings, llm_model=model)
+
     llm = create_llm_provider(settings)
     return Pipeline(
         settings=settings,
@@ -178,22 +192,26 @@ def build_pipeline(settings: AppSettings) -> Pipeline:
 
 
 def cmd_discover(settings: AppSettings, args: argparse.Namespace) -> int:
-    """调用 LLM 发现候选站点并登记入台账。"""
-    pipeline = build_pipeline(settings)
+    """调用 LLM 发现候选站点，验证网址后登记入台账。"""
+    pipeline = build_pipeline(settings, "discover")
     target = Target(
         name=args.target,
         category=args.category,
         keywords=args.hint or [],
     )
-    sites = pipeline.discover_sites(target, args.hint)
+    sites, rejected = pipeline.discover_with_report(target, args.hint)
     if not sites:
-        print("未发现有效候选站点（模型未返回合法网站，可调整线索后重试）。")
-        return 0
+        print("未发现可用站点（候选地址均未通过真实可达性验证）。")
+    else:
+        print(f"发现并入库 {len(sites)} 个站点：")
+        for site in sites:
+            note = f"（{site.note}）" if site.note else ""
+            print(f"  - {site.url}{note}")
 
-    print(f"发现 {len(sites)} 个候选站点：")
-    for site in sites:
-        note = f"（{site.note}）" if site.note else ""
-        print(f"  - {site.url}{note}")
+    if rejected:
+        print(f"\n丢弃 {len(rejected)} 个候选：")
+        for item in rejected:
+            print(f"  - {item['url']}：{item['reason']}")
     return 0
 
 
@@ -211,10 +229,11 @@ def cmd_collect(settings: AppSettings) -> int:
     return 0
 
 
-def cmd_analyze(settings: AppSettings) -> int:
+def cmd_analyze(settings: AppSettings, args: argparse.Namespace | None = None) -> int:
     """读取原始资料归纳整理，保存结果并更新台账状态。"""
-    pipeline = build_pipeline(settings)
-    result = pipeline.analyze_all()
+    pipeline = build_pipeline(settings, "analyze")
+    instructions = getattr(args, "instructions", "") or ""
+    result = pipeline.analyze_all(instructions)
     if result is None:
         print("data/raw/ 下暂无原始资料，可先运行 collect 抓取。")
         return 0
@@ -246,7 +265,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "collect":
         return cmd_collect(settings)
     if args.command == "analyze":
-        return cmd_analyze(settings)
+        return cmd_analyze(settings, args)
 
     # 其余命令待具体组件实现后，在此装配 Pipeline 并调用对应阶段
     print(f"命令 '{args.command}' 骨架已预留，具体流程待组件实现后接入。")

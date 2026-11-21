@@ -28,6 +28,7 @@ class LMStudioProvider(LLMProvider):
         *,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        model: Optional[str] = None,
     ) -> str:
         try:
             import httpx
@@ -38,7 +39,7 @@ class LMStudioProvider(LLMProvider):
 
         url = f"{self.settings.llm_base_url.rstrip('/')}/chat/completions"
         payload = {
-            "model": self.settings.llm_model,
+            "model": model or self.settings.llm_model,
             "messages": messages,
             "temperature": temperature or self.settings.temperature,
             "max_tokens": max_tokens or self.settings.max_tokens,

@@ -31,6 +31,7 @@
 | 模块 | 路径 | 职责 | 当前状态 |
 | --- | --- | --- | --- |
 | 配置 | `src/config/settings.py` | 读取环境变量 / `.env`，提供全局配置与数据目录 | 已实现 |
+| 分步模型 | `src/config/model_choice.py` | 记录各阶段使用的模型（`data/model_choice.json`） | 已实现 |
 | 领域模型 | `src/models/domain.py` | `Target`、`SiteRecord`、`RawDocument`、`AnalysisResult` 等统一结构 | 已实现 |
 | 模型接入 | `src/llm/` | `LLMProvider` 抽象、LM Studio 兼容实现、工厂注册 | 接口 + 本地实现骨架 |
 | 渠道发现 | `src/collector/` | LLM 推荐候选站点，JSON 解析为站点记录 | 接口 + LLM 实现 |
@@ -44,9 +45,9 @@
 ## 四、数据流（对应业务四阶段）
 
 1. **需求输入**：CLI 传入对象（国家 / 人 / 机构）与类型（财政 / 结构 / 历史），构造 `Target`。
-2. **渠道发现**：`ChannelCollector.discover()` 产出 `SiteRecord` 列表；`Pipeline` 将新站点写入 `SiteRepository` 台账。
+2. **渠道发现**：`ChannelCollector.discover()` 产出候选 `SiteRecord`；`Pipeline` 先对每个地址做真实可达性探测（`probe_url`），丢弃编造 / 不可访问地址，通过的才写入台账。
 3. **抓取收集**：`Crawler.fetch()` 抓取 `PENDING` 站点，生成 `RawDocument`；先经内容质量校验（域名黑名单、垃圾关键词、正文长度、导航页识别），不合格直接丢弃；已抓取过的站点跳过；通过后按「时间 + 内容」命名存入 `data/raw/`；台账记录状态与来源文件。
-4. **分析归纳**：`DocumentAnalyzer.analyze()` 归纳 `data/raw/` 与 `data/user_files/` 的资料，产出 `AnalysisResult`（含来源文件清单）；增量场景调用 `analyze_incremental()`，只处理 `last_analyzed_at` 之后的更新。
+4. **分析归纳**：`DocumentAnalyzer.analyze(documents, instructions)` 归纳 `data/raw/` 与 `data/user_files/` 的资料，用户提出的整理要求以 `instructions` 注入提示词；产出 `AnalysisResult`（含来源文件清单）；增量场景调用 `analyze_incremental()`。
 
 ## 五、核心抽象与扩展点
 

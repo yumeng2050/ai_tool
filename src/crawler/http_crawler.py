@@ -131,15 +131,47 @@ class HTTPCrawler(Crawler):
 
         soup = BeautifulSoup(html, "html.parser")
         for tag in soup(
-            ["script", "style", "nav", "footer", "aside", "header", "noscript", "form"]
+            [
+                "script",
+                "style",
+                "nav",
+                "footer",
+                "aside",
+                "header",
+                "noscript",
+                "form",
+                "iframe",
+                "svg",
+            ]
         ):
             tag.decompose()
 
+        # 优先在正文容器内提取，减少侧栏 / 推荐位噪声
+        containers = soup.select(
+            "article, main, [role=main], #content, .content, .article, "
+            ".article-content, .post-content, .entry-content, #main"
+        )
+        scope = containers[0] if containers else soup.body or soup
+
         parts: list[str] = []
         seen: set[str] = set()
-        for element in soup.select("h1, h2, h3, p, li"):
+
+        # 段落、标题、列表、表格单元格、引用、代码块都纳入提取
+        for element in scope.select(
+            "h1, h2, h3, h4, p, li, td, th, blockquote, pre, dd, figcaption"
+        ):
             text = element.get_text(" ", strip=True)
-            if text and text not in seen:
-                seen.add(text)
-                parts.append(text)
+            if not text or len(text) < 2:
+                continue
+            if text in seen:
+                continue
+            seen.add(text)
+            parts.append(text)
+
+        # 容器内没有结构性文本时，退化为容器整体文本
+        if len("\n".join(parts)) < 200 and scope is not soup:
+            fallback = scope.get_text("\n", strip=True)
+            if fallback:
+                return fallback
+
         return "\n".join(parts)

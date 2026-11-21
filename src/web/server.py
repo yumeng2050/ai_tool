@@ -67,6 +67,25 @@ class AddSitesRequest(BaseModel):
     urls: list[str] = Field(default_factory=list)
 
 
+class ModelChoiceRequest(BaseModel):
+    """记录某阶段使用的模型。"""
+
+    step: str
+    model: str = ""
+
+
+class ChatRequest(BaseModel):
+    """与分析前的对话请求。"""
+
+    messages: list[dict] = Field(default_factory=list)
+
+
+class AnalyzeRequest(BaseModel):
+    """归纳分析请求：可带用户提出的具体要求。"""
+
+    instructions: str = ""
+
+
 # ===== 模型状态检查（结构化版 doctor）=====
 
 def _check_doctor() -> dict:
@@ -153,14 +172,99 @@ def api_discover(req: DiscoverRequest) -> JSONResponse:
     category = req.category.strip() or "未分类"
     hints = [h.strip() for h in req.hints if h and h.strip()]
 
-    pipeline = build_pipeline(settings)
+    pipeline = build_pipeline(settings, "discover")
     target = Target(name=target_name, category=category, keywords=hints)
-    sites = pipeline.discover_sites(target, hints)
+    sites, rejected = pipeline.discover_with_report(target, hints)
     return {
         "ok": True,
-        "message": f"发现 {len(sites)} 个候选站点。",
+        "message": f"验证通过并入库 {len(sites)} 个站点，丢弃 {len(rejected)} 个（地址不存在或不可访问）。",
         "data": [_site_to_dict(site) for site in sites],
+        "rejected": rejected,
     }
+
+
+@app.get("/api/models")
+def api_models() -> dict:
+    """列出可用模型与各阶段已记录的模型选择。"""
+    from src.config.model_choice import STEP_LABELS, load_choices, model_for_step
+
+    choices = load_choices(settings)
+    try:
+        provider = create_llm_provider(settings)
+        models = provider.list_models()
+        reachable = True
+        message = ""
+    except Exception as exc:  # noqa: BLE001
+        models = []
+        reachable = False
+        message = f"{type(exc).__name__}: {exc}"
+
+    return {
+        "ok": True,
+        "data": {
+            "models": models,
+            "reachable": reachable,
+            "message": message,
+            "default_model": settings.llm_model,
+            "choices": {step: model_for_step(settings, step) for step in STEP_LABELS},
+            "step_labels": STEP_LABELS,
+        },
+    }
+
+
+@app.post("/api/model-choice")
+def api_model_choice(req: ModelChoiceRequest) -> JSONResponse:
+    """保存某阶段使用的模型（自动记录，重启后仍生效）。"""
+    from src.config.model_choice import STEP_LABELS, save_choice
+
+    if req.step not in STEP_LABELS:
+        return JSONResponse({"ok": False, "message": "未知阶段。"}, status_code=400)
+
+    try:
+        choices = save_choice(settings, req.step, req.model.strip())
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "message": str(exc)}, status_code=400)
+
+    label = STEP_LABELS[req.step]
+    model = req.model.strip() or "（默认）"
+    return {"ok": True, "message": f"{label}阶段已记录模型：{model}", "data": choices}
+
+
+@app.post("/api/chat")
+def api_chat(req: ChatRequest) -> JSONResponse:
+    """整理分析前的对话：用户先提出要求，模型可反问澄清。"""
+    from src.config.model_choice import model_for_step
+
+    history = [
+        {"role": m.get("role", "user"), "content": m.get("content", "")}
+        for m in req.messages
+        if m.get("content")
+    ]
+    if not history:
+        return JSONResponse({"ok": False, "message": "消息为空。"}, status_code=400)
+
+    system = (
+        "你是资料整理助手。用户正在提出他对接下来资料整理的要求，"
+        "请理解并帮他澄清：可以指出要求中不清楚的地方、给出更具体的整理维度建议，"
+        "回复简洁，不要直接开始整理资料。"
+    )
+    messages = [make_message("system", system)] + [
+        make_message(m["role"], m["content"]) for m in history
+    ]
+
+    try:
+        provider = create_llm_provider(settings)
+        reply = provider.chat(
+            messages,
+            model=model_for_step(settings, "chat"),
+            max_tokens=max(settings.max_tokens, 1024),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            {"ok": False, "message": f"{type(exc).__name__}: {exc}"}, status_code=500
+        )
+
+    return {"ok": True, "message": "已回复。", "data": {"reply": reply.strip()}}
 
 
 @app.post("/api/add-sites")
@@ -262,10 +366,11 @@ def api_collect() -> dict:
 
 
 @app.post("/api/analyze")
-def api_analyze() -> dict:
+def api_analyze(req: AnalyzeRequest | None = None) -> dict:
     """读取原始资料归纳整理，保存结果并更新台账状态。"""
-    pipeline = build_pipeline(settings)
-    result = pipeline.analyze_all()
+    instructions = (req.instructions if req else "") or ""
+    pipeline = build_pipeline(settings, "analyze")
+    result = pipeline.analyze_all(instructions)
     if result is None:
         return {
             "ok": False,
