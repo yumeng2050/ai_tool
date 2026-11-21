@@ -19,6 +19,7 @@ import time
 
 import httpx
 
+from src.analyzer import LLMDocumentAnalyzer
 from src.collector import LLMChannelCollector
 from src.config.settings import AppSettings
 from src.crawler import HTTPCrawler
@@ -164,7 +165,7 @@ def cmd_list_sites(settings: AppSettings) -> int:
 
 
 def build_pipeline(settings: AppSettings) -> Pipeline:
-    """装配当前已实现的组件：模型、仓储、抓取器、渠道发现器。"""
+    """装配当前已实现的组件：模型、仓储、抓取器、渠道发现器、分析器。"""
     llm = create_llm_provider(settings)
     return Pipeline(
         settings=settings,
@@ -172,6 +173,7 @@ def build_pipeline(settings: AppSettings) -> Pipeline:
         repository=build_sqlite_repository(settings),
         crawler=HTTPCrawler(settings),
         collector=LLMChannelCollector(llm, settings),
+        analyzer=LLMDocumentAnalyzer(llm, settings),
     )
 
 
@@ -209,6 +211,22 @@ def cmd_collect(settings: AppSettings) -> int:
     return 0
 
 
+def cmd_analyze(settings: AppSettings) -> int:
+    """读取原始资料归纳整理，保存结果并更新台账状态。"""
+    pipeline = build_pipeline(settings)
+    result = pipeline.analyze_all()
+    if result is None:
+        print("data/raw/ 下暂无原始资料，可先运行 collect 抓取。")
+        return 0
+
+    print(f"分析完成：{result.target} / {result.category}")
+    print(f"结果文件：{result.extra.get('file_path', '-')}")
+    print(f"来源文件 {len(result.source_files)} 份")
+    print("\n----- 整理结果 -----")
+    print(result.summary)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     settings = AppSettings.load()
@@ -227,6 +245,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_discover(settings, args)
     if args.command == "collect":
         return cmd_collect(settings)
+    if args.command == "analyze":
+        return cmd_analyze(settings)
 
     # 其余命令待具体组件实现后，在此装配 Pipeline 并调用对应阶段
     print(f"命令 '{args.command}' 骨架已预留，具体流程待组件实现后接入。")

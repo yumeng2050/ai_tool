@@ -51,7 +51,7 @@ ai_tool/
 │   ├── llm/               # 模型接入：抽象接口 + LM Studio 实现 + 工厂注册
 │   ├── collector/         # 渠道发现（抽象接口）
 │   ├── crawler/           # 网页抓取与正文提取（抽象接口）
-│   ├── analyzer/          # 资料分析、增量分析（抽象接口）
+│   ├── analyzer/          # 资料分析、增量分析（抽象接口 + LLM 归纳实现 + 提示词模板）
 │   ├── storage/           # 站点台账仓储接口 + 文件路径命名约定
 │   └── pipeline/          # 流程编排，串联各阶段并注入组件
 └── data/                  # 运行数据（不纳入 Git，含 .gitkeep 占位）
@@ -118,7 +118,7 @@ ai_tool/
    python -m src.cli doctor
    ```
 
-6. 在 VS Code 中开发与运行；其余子命令（`discover` / `collect` / `analyze` / `incremental`）待对应组件实现后接入。
+6. 在 VS Code 中开发与运行；`doctor` / `discover` / `collect` / `analyze` 已接入，`incremental`（增量二次分析）待后续接线。
 
 ## 六、开发路线图
 
@@ -127,6 +127,7 @@ ai_tool/
 - [x] 站点台账（SQLite）与状态管理
 - [x] 网页抓取与正文提取（HTTP 抓取、BS4 正文提取、落盘 raw）
 - [x] 渠道发现：LLM 生成候选站点并入库
-- [ ] 资料分析与增量（二次）分析
-- [ ] 结果归纳整理与来源溯源
-- [ ] 命令行 / 交互入口串联通车
+- [x] 全量资料分析：读取 `data/raw/`、LLM 归纳、结果落盘 `data/output/` 并回写台账状态
+- [x] 结果归纳整理与来源溯源（结果附来源文件清单）
+- [ ] 增量（二次）分析：CLI 接入，按 `last_analyzed_at` 过滤站点更新内容
+- [ ] 命令行 / 交互入口串联通车（增量命令待接）

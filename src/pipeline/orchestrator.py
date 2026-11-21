@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Optional
 
 from src.analyzer import DocumentAnalyzer
@@ -18,8 +19,19 @@ from src.collector import ChannelCollector
 from src.config.settings import AppSettings
 from src.crawler import Crawler
 from src.llm import LLMProvider
-from src.models.domain import RawDocument, SiteRecord, SiteStatus, Target
-from src.storage import SiteRepository, save_raw_document
+from src.models.domain import (
+    AnalysisResult,
+    RawDocument,
+    SiteRecord,
+    SiteStatus,
+    Target,
+)
+from src.storage import (
+    SiteRepository,
+    load_raw_documents,
+    save_analysis_result,
+    save_raw_document,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +115,32 @@ class Pipeline:
         """对一批原始资料做归纳整理。"""
         analyzer = self._require(self.analyzer, "DocumentAnalyzer")
         return analyzer.analyze(documents)
+
+    def analyze_all(self) -> Optional[AnalysisResult]:
+        """读取 ``data/raw/`` 全部原始资料，归纳整理并保存结果，更新台账状态。
+
+        :return: 分析结果；没有可分析资料时返回 ``None``
+        """
+        analyzer = self._require(self.analyzer, "DocumentAnalyzer")
+        repo = self._require(self.repository, "SiteRepository")
+
+        documents = load_raw_documents(self.settings)
+        if not documents:
+            return None
+
+        result = analyzer.analyze(documents)
+        save_analysis_result(self.settings, result)
+
+        # 把这批资料对应的站点标记为已分析，记录分析时间
+        analyzed_urls = {doc.site_url for doc in documents}
+        for url in analyzed_urls:
+            site = repo.get(url)
+            if site is not None:
+                site.status = SiteStatus.ANALYZED
+                site.last_analyzed_at = datetime.now()
+                repo.update(site)
+
+        return result
 
     def run_incremental(self) -> list:
         """增量分析：对已分析站点处理其上次分析时间之后的更新。"""
