@@ -19,7 +19,7 @@ from src.config.settings import AppSettings
 from src.crawler import Crawler
 from src.llm import LLMProvider
 from src.models.domain import RawDocument, SiteRecord, SiteStatus, Target
-from src.storage import SiteRepository
+from src.storage import SiteRepository, save_raw_document
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class Pipeline:
     def __init__(
         self,
         settings: AppSettings,
-        llm: LLMProvider,
+        llm: Optional[LLMProvider] = None,
         collector: Optional[ChannelCollector] = None,
         crawler: Optional[Crawler] = None,
         analyzer: Optional[DocumentAnalyzer] = None,
@@ -79,6 +79,23 @@ class Pipeline:
             if document is not None:
                 documents.append(document)
         return documents
+
+    def collect_and_save(self) -> list[RawDocument]:
+        """抓取所有待分析站点，落盘原始资料并更新台账来源文件清单。"""
+        crawler = self._require(self.crawler, "Crawler")
+        repo = self._require(self.repository, "SiteRepository")
+
+        saved: list[RawDocument] = []
+        for site in repo.list_by_status(SiteStatus.PENDING):
+            document = crawler.fetch(site)
+            if document is None:
+                continue
+            save_raw_document(self.settings, document)
+            if document.file_path and document.file_path not in site.source_files:
+                site.source_files.append(document.file_path)
+            repo.update(site)
+            saved.append(document)
+        return saved
 
     # ===== 阶段三：分析归纳 =====
 

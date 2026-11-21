@@ -20,8 +20,10 @@ import time
 import httpx
 
 from src.config.settings import AppSettings
+from src.crawler import HTTPCrawler
 from src.llm import create_llm_provider, make_message
 from src.models.domain import SiteRecord
+from src.pipeline import Pipeline
 from src.storage import build_sqlite_repository
 
 
@@ -160,6 +162,29 @@ def cmd_list_sites(settings: AppSettings) -> int:
     return 0
 
 
+def build_pipeline(settings: AppSettings) -> Pipeline:
+    """装配当前已实现的组件（仓储 + 抓取器）；分析等组件后续补齐。"""
+    return Pipeline(
+        settings=settings,
+        repository=build_sqlite_repository(settings),
+        crawler=HTTPCrawler(settings),
+    )
+
+
+def cmd_collect(settings: AppSettings) -> int:
+    """抓取所有待分析站点，保存原始资料并更新台账。"""
+    pipeline = build_pipeline(settings)
+    saved = pipeline.collect_and_save()
+    if not saved:
+        print("没有可抓取的待分析站点（台账为空或站点均已分析）。")
+        return 0
+
+    print(f"共保存 {len(saved)} 份原始资料：")
+    for doc in saved:
+        print(f"  - {doc.title} -> {doc.file_path}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     settings = AppSettings.load()
@@ -174,6 +199,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_add_site(settings, args)
     if args.command == "list-sites":
         return cmd_list_sites(settings)
+    if args.command == "collect":
+        return cmd_collect(settings)
 
     # 其余命令待具体组件实现后，在此装配 Pipeline 并调用对应阶段
     print(f"命令 '{args.command}' 骨架已预留，具体流程待组件实现后接入。")

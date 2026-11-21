@@ -34,7 +34,7 @@
 | 领域模型 | `src/models/domain.py` | `Target`、`SiteRecord`、`RawDocument`、`AnalysisResult` 等统一结构 | 已实现 |
 | 模型接入 | `src/llm/` | `LLMProvider` 抽象、LM Studio 兼容实现、工厂注册 | 接口 + 本地实现骨架 |
 | 渠道发现 | `src/collector/` | 根据对象与类型发现候选站点 | 抽象接口，实现待补 |
-| 抓取收集 | `src/crawler/` | 抓取页面、提取正文为原始资料 | 抽象接口，实现待补 |
+| 抓取收集 | `src/crawler/` | HTTP 抓取、正文提取、生成原始资料 | 接口 + HTTP 实现（BS4，trafilatura 可选） |
 | 分析归纳 | `src/analyzer/` | 首次分析、增量分析、结果溯源 | 抽象接口，实现待补 |
 | 持久化 | `src/storage/` | 站点台账仓储接口、SQLite 实现、文件路径与命名约定 | 接口 + SQLite 实现 + 命名约定 |
 | 流程编排 | `src/pipeline/` | 串联三阶段，注入各组件 | 骨架已实现 |
@@ -80,8 +80,8 @@
 ## 七、后续落地顺序
 
 1. ~~仓储 SQLite 实现~~（已完成：站点增查改、状态筛选、增量时间与来源文件）。
-2. LLM 连通性测试（`doctor` 命令发一条测试消息）。
-3. 抓取实现：HTTP 抓取 + 正文提取，落盘原始资料。
+2. ~~LLM 连通性测试~~（已完成：`doctor` 检查可达性、模型匹配与最小对话）。
+3. ~~抓取实现~~（已完成：HTTP 抓取 + 正文提取 + 落盘 `data/raw/`，台账记录来源文件）。
 4. 渠道发现：基于 LLM 生成候选站点并入台账。
 5. 分析实现：提示词模板 + 归纳整理 + 来源溯源。
 6. 增量分析：按 `last_analyzed_at` 过滤更新内容。
