@@ -33,7 +33,7 @@
 | 配置 | `src/config/settings.py` | 读取环境变量 / `.env`，提供全局配置与数据目录 | 已实现 |
 | 领域模型 | `src/models/domain.py` | `Target`、`SiteRecord`、`RawDocument`、`AnalysisResult` 等统一结构 | 已实现 |
 | 模型接入 | `src/llm/` | `LLMProvider` 抽象、LM Studio 兼容实现、工厂注册 | 接口 + 本地实现骨架 |
-| 渠道发现 | `src/collector/` | 根据对象与类型发现候选站点 | 抽象接口，实现待补 |
+| 渠道发现 | `src/collector/` | LLM 推荐候选站点，JSON 解析为站点记录 | 接口 + LLM 实现 |
 | 抓取收集 | `src/crawler/` | HTTP 抓取、正文提取、生成原始资料 | 接口 + HTTP 实现（BS4，trafilatura 可选） |
 | 分析归纳 | `src/analyzer/` | 首次分析、增量分析、结果溯源 | 抽象接口，实现待补 |
 | 持久化 | `src/storage/` | 站点台账仓储接口、SQLite 实现、文件路径与命名约定 | 接口 + SQLite 实现 + 命名约定 |
@@ -82,7 +82,7 @@
 1. ~~仓储 SQLite 实现~~（已完成：站点增查改、状态筛选、增量时间与来源文件）。
 2. ~~LLM 连通性测试~~（已完成：`doctor` 检查可达性、模型匹配与最小对话）。
 3. ~~抓取实现~~（已完成：HTTP 抓取 + 正文提取 + 落盘 `data/raw/`，台账记录来源文件）。
-4. 渠道发现：基于 LLM 生成候选站点并入台账。
+4. ~~渠道发现~~（已完成：LLM 推荐站点、JSON 解析容错、去重入库）。
 5. 分析实现：提示词模板 + 归纳整理 + 来源溯源。
 6. 增量分析：按 `last_analyzed_at` 过滤更新内容。
 7. 测试与错误处理、日志规范。
@@ -95,10 +95,10 @@ src/
 ├── config/settings.py     # 配置加载
 ├── models/domain.py       # 领域数据模型
 ├── llm/                   # 模型接入：base / lm_studio / factory
-├── collector/base.py      # 渠道发现接口
-├── crawler/base.py        # 抓取接口
-├── analyzer/base.py       # 分析接口
-├── storage/               # 仓储接口 + 路径命名
+├── collector/             # 渠道发现：base / llm_collector / prompts
+├── crawler/               # 抓取：base / http_crawler
+├── analyzer/              # 分析接口（实现待补）
+├── storage/               # 仓储接口 + SQLite 实现 + 路径命名 + 落盘
 └── pipeline/orchestrator.py # 流程编排
 data/                      # 运行数据（不纳入 Git，含 .gitkeep 占位）
 docs/                      # 设计文档

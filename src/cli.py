@@ -19,10 +19,11 @@ import time
 
 import httpx
 
+from src.collector import LLMChannelCollector
 from src.config.settings import AppSettings
 from src.crawler import HTTPCrawler
 from src.llm import create_llm_provider, make_message
-from src.models.domain import SiteRecord
+from src.models.domain import SiteRecord, Target
 from src.pipeline import Pipeline
 from src.storage import build_sqlite_repository
 
@@ -163,12 +164,35 @@ def cmd_list_sites(settings: AppSettings) -> int:
 
 
 def build_pipeline(settings: AppSettings) -> Pipeline:
-    """装配当前已实现的组件（仓储 + 抓取器）；分析等组件后续补齐。"""
+    """装配当前已实现的组件：模型、仓储、抓取器、渠道发现器。"""
+    llm = create_llm_provider(settings)
     return Pipeline(
         settings=settings,
+        llm=llm,
         repository=build_sqlite_repository(settings),
         crawler=HTTPCrawler(settings),
+        collector=LLMChannelCollector(llm, settings),
     )
+
+
+def cmd_discover(settings: AppSettings, args: argparse.Namespace) -> int:
+    """调用 LLM 发现候选站点并登记入台账。"""
+    pipeline = build_pipeline(settings)
+    target = Target(
+        name=args.target,
+        category=args.category,
+        keywords=args.hint or [],
+    )
+    sites = pipeline.discover_sites(target, args.hint)
+    if not sites:
+        print("未发现有效候选站点（模型未返回合法网站，可调整线索后重试）。")
+        return 0
+
+    print(f"发现 {len(sites)} 个候选站点：")
+    for site in sites:
+        note = f"（{site.note}）" if site.note else ""
+        print(f"  - {site.url}{note}")
+    return 0
 
 
 def cmd_collect(settings: AppSettings) -> int:
@@ -199,6 +223,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_add_site(settings, args)
     if args.command == "list-sites":
         return cmd_list_sites(settings)
+    if args.command == "discover":
+        return cmd_discover(settings, args)
     if args.command == "collect":
         return cmd_collect(settings)
 
