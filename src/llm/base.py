@@ -31,6 +31,10 @@ class LLMProvider(ABC):
 
     # ===== 预留扩展点 =====
 
+    def list_models(self) -> list[str]:
+        """返回服务端可用模型 id 列表（部分提供方可能不支持）。"""
+        raise NotImplementedError
+
     def chat_stream(self, messages: list[dict], **kwargs):
         """流式输出（预留）。"""
         raise NotImplementedError

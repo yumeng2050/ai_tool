@@ -53,4 +53,24 @@ class LMStudioProvider(LLMProvider):
         )
         response.raise_for_status()
         data = response.json()
-        return data["choices"][0]["message"]["content"]
+        message = data["choices"][0]["message"]
+        # 推理模型可能把内容放在 reasoning_content，content 暂时为空，做兜底
+        return message.get("content") or message.get("reasoning_content") or ""
+
+    def list_models(self) -> list[str]:
+        """获取本地服务当前可用的模型 id 列表。"""
+        try:
+            import httpx
+        except ImportError as exc:
+            raise RuntimeError(
+                "缺少依赖 httpx，请先执行 pip install -r requirements.txt"
+            ) from exc
+
+        url = f"{self.settings.llm_base_url.rstrip('/')}/models"
+        headers = {"Authorization": f"Bearer {self.settings.llm_api_key}"}
+        response = httpx.get(
+            url, headers=headers, timeout=self.settings.request_timeout
+        )
+        response.raise_for_status()
+        data = response.json()
+        return [model["id"] for model in data.get("data", [])]

@@ -53,6 +53,7 @@
 
 - 新增云端模型或其他本地后端：实现 `LLMProvider`，在 `factory._REGISTRY` 注册，或运行时 `register_provider()`。
 - 预留能力：`chat_stream()` 流式输出、`embed()` 向量化（后续用于语义去重 / 检索）。
+- 推理模型兼容：部分模型先输出 `reasoning_content`（思考链）、正式 `content` 滞后；接口在 `content` 为空时回退取 `reasoning_content`，正式分析时需给足 `max_tokens`。
 
 ### 2. 业务组件接口
 

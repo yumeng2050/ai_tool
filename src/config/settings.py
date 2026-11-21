@@ -17,14 +17,31 @@ DEFAULT_DATA_DIR = PROJECT_ROOT / "data"
 
 
 def _load_dotenv() -> None:
-    """可选加载 ``.env``；未安装 python-dotenv 时静默跳过。"""
+    """加载 ``.env``。
+
+    优先使用 python-dotenv；未安装时用标准库兜底解析
+    （``KEY=VALUE``，忽略注释与空行，不覆盖已有环境变量）。
+    """
+    env_file = PROJECT_ROOT / ".env"
+    if not env_file.exists():
+        return
     try:
         from dotenv import load_dotenv  # type: ignore
-    except ImportError:
-        return
-    env_file = PROJECT_ROOT / ".env"
-    if env_file.exists():
+
         load_dotenv(env_file)
+        return
+    except ImportError:
+        pass
+
+    for raw in env_file.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
 
 
 @dataclass

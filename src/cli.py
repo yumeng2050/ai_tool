@@ -15,8 +15,12 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import time
+
+import httpx
 
 from src.config.settings import AppSettings
+from src.llm import create_llm_provider, make_message
 from src.models.domain import SiteRecord
 from src.storage import build_sqlite_repository
 
@@ -48,8 +52,60 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def cmd_check_llm(settings: AppSettings) -> None:
+    """检查模型服务可达性、模型名匹配情况，并做一次最小对话测试。"""
+    print("\n=== 模型连通性 ===")
+    try:
+        provider = create_llm_provider(settings)
+        models = provider.list_models()
+    except RuntimeError as exc:
+        print(f"模型服务: 不可用（{exc}）")
+        return
+    except httpx.ConnectError:
+        print("模型服务: 无法连接。请确认 LM Studio 已启动、已加载模型，")
+        print("          且 Local Server 已开启，端口与 LLM_BASE_URL 一致。")
+        return
+    except httpx.TimeoutException:
+        print("模型服务: 连接超时，请检查本地服务是否响应。")
+        return
+    except httpx.HTTPStatusError as exc:
+        print(f"模型服务: 接口返回错误 HTTP {exc.response.status_code}")
+        return
+    except Exception as exc:  # noqa: BLE001 - 自检场景下统一兜底展示
+        print(f"模型服务: 未知错误 {type(exc).__name__}: {exc}")
+        return
+
+    print("模型服务: 可达")
+    print("可用模型:")
+    for model in models:
+        print(f"  - {model}")
+
+    if settings.llm_model not in models:
+        print(
+            f"\n配置模型 '{settings.llm_model}' 不在可用列表中，跳过对话测试。"
+            "\n请在 .env 的 LLM_MODEL 中填写上方列表里的模型 id。"
+        )
+        return
+
+    print(f"\n配置模型 '{settings.llm_model}': 匹配，开始对话测试 ...")
+    started = time.perf_counter()
+    try:
+        reply = provider.chat(
+            [make_message("user", "你好，请用一句话简单回复。")],
+            max_tokens=64,
+        )
+        elapsed = time.perf_counter() - started
+        print(f"对话测试: 成功（{elapsed:.2f}s）")
+        if reply.strip():
+            print(f"回复: {reply.strip()[:100]}")
+        else:
+            print("回复: （模型尚未产出正式文本，可能仍处于思考阶段）")
+    except Exception as exc:  # noqa: BLE001
+        print(f"对话测试: 失败 {type(exc).__name__}: {exc}")
+
+
 def cmd_doctor(settings: AppSettings) -> int:
-    """打印当前配置、目录就绪情况与台账概况（模型连通性测试预留）。"""
+    """打印当前配置、目录就绪情况、台账概况，并检查模型连通性。"""
     print(f"provider      : {settings.provider}")
     print(f"llm_base_url  : {settings.llm_base_url}")
     print(f"llm_model     : {settings.llm_model}")
@@ -62,8 +118,8 @@ def cmd_doctor(settings: AppSettings) -> int:
     )
     repo = build_sqlite_repository(settings)
     print(f"台账站点数    : {len(repo.list_all())}")
-    # 预留：创建 LLMProvider 并发送一条短消息验证连通性
-    # llm = create_llm_provider(settings)
+
+    cmd_check_llm(settings)
     return 0
 
 
@@ -110,6 +166,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
         level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
     )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
     if args.command == "doctor":
         return cmd_doctor(settings)
