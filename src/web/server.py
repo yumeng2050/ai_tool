@@ -18,7 +18,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from src.cli import build_pipeline
+from src.cli import build_llm, build_pipeline
 from src.config.settings import AppSettings
 from src.llm import create_llm_provider, make_message
 from src.models.domain import SiteRecord, Target
@@ -84,6 +84,15 @@ class AnalyzeRequest(BaseModel):
     """归纳分析请求：可带用户提出的具体要求。"""
 
     instructions: str = ""
+
+
+class ProviderRequest(BaseModel):
+    """备用模型来源：OpenAI 兼容服务。"""
+
+    name: str
+    base_url: str
+    api_key: str = ""
+    model: str = ""
 
 
 # ===== 模型状态检查（结构化版 doctor）=====
@@ -253,7 +262,7 @@ def api_chat(req: ChatRequest) -> JSONResponse:
     ]
 
     try:
-        provider = create_llm_provider(settings)
+        provider = build_llm(settings, "chat")
         reply = provider.chat(
             messages,
             model=model_for_step(settings, "chat"),
@@ -339,6 +348,66 @@ def api_open_user_files() -> JSONResponse:
     directory.mkdir(parents=True, exist_ok=True)
     os.startfile(str(directory))  # noqa: S606 - 仅本机打开资源管理器
     return {"ok": True, "message": f"已打开目录：{directory}"}
+
+
+@app.get("/api/providers")
+def api_providers() -> dict:
+    """列出备用模型来源（密钥做脱敏）。"""
+    from src.config.providers import load_extra_providers
+
+    def mask(key: str) -> str:
+        if not key:
+            return ""
+        return key[:4] + "…" + key[-4:] if len(key) > 8 else "…"
+
+    items = [
+        {
+            "name": p.name,
+            "base_url": p.base_url,
+            "model": p.model,
+            "enabled": p.enabled,
+            "api_key_masked": mask(p.api_key),
+            "has_key": bool(p.api_key),
+        }
+        for p in load_extra_providers(settings)
+    ]
+    return {"ok": True, "data": items}
+
+
+@app.post("/api/providers")
+def api_add_provider(req: ProviderRequest) -> JSONResponse:
+    """新增（或覆盖同名）备用模型来源。"""
+    from src.config.providers import ExtraProvider, add_extra_provider
+
+    if not req.name.strip() or not req.base_url.strip():
+        return JSONResponse(
+            {"ok": False, "message": "名称与接口地址必填。"}, status_code=400
+        )
+    if not req.base_url.startswith(("http://", "https://")):
+        return JSONResponse(
+            {"ok": False, "message": "接口地址需以 http:// 或 https:// 开头。"},
+            status_code=400,
+        )
+
+    add_extra_provider(
+        settings,
+        ExtraProvider(
+            name=req.name.strip(),
+            base_url=req.base_url.strip().rstrip("/"),
+            api_key=req.api_key.strip(),
+            model=req.model.strip(),
+        ),
+    )
+    return {"ok": True, "message": f"已保存备用来源：{req.name.strip()}（主模型失败时自动切换）"}
+
+
+@app.delete("/api/providers")
+def api_delete_provider(name: str) -> JSONResponse:
+    """删除指定备用来源。"""
+    from src.config.providers import remove_extra_provider
+
+    remove_extra_provider(settings, name)
+    return {"ok": True, "message": f"已删除：{name}"}
 
 
 @app.get("/api/sites")

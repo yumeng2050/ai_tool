@@ -151,6 +151,21 @@
     <div class="hint" style="margin-top:6px;">选择会自动记录到本地配置文件，重启后仍生效。</div>
   </div>
 
+  <!-- 备用模型来源 -->
+  <div class="card">
+    <h2>备用模型来源（主模型失败自动切换）</h2>
+    <div id="providers-list" class="hint" style="margin-bottom:10px;">尚未配置。</div>
+    <div class="row" style="align-items:flex-start;">
+      <div class="field"><label>名称</label><input type="text" id="pv-name" placeholder="如 OpenRouter-免费"></div>
+      <div class="field"><label>接口地址</label><input type="text" id="pv-base" placeholder="https://xxx.com/v1"></div>
+      <div class="field"><label>模型 id</label><input type="text" id="pv-model" placeholder="如 deepseek-r1:free"></div>
+      <div class="field"><label>密钥</label><input type="text" id="pv-key" placeholder="sk-..."></div>
+      <button onclick="addProvider()">添加</button>
+    </div>
+    <div id="pv-msg" class="hint" style="margin-top:8px;"></div>
+    <div class="hint" style="margin-top:6px;">只要服务是 OpenAI 兼容协议即可：主模型失败时按添加顺序自动切换过去。</div>
+  </div>
+
   <!-- 目标与渠道发现 -->
   <div class="card">
     <h2>目标与渠道发现</h2>
@@ -528,6 +543,67 @@ async function saveModels() {
   }
 }
 
+// ===== 备用模型来源 =====
+async function loadProviders() {
+  const box = document.getElementById("providers-list");
+  try {
+    const res = await request("/api/providers");
+    const items = res.data || [];
+    if (!items.length) {
+      box.innerHTML = '<span class="muted">尚未配置备用来源。</span>';
+      return;
+    }
+    box.innerHTML = items.map(p =>
+      `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid var(--border);">
+        <span>${escapeHtml(p.name)} <span class="muted">｜${escapeHtml(p.base_url)}｜模型 ${escapeHtml(p.model || "未填")}｜密钥 ${p.has_key ? escapeHtml(p.api_key_masked) : "未填"}</span></span>
+        <button class="secondary" onclick="removeProvider('${escapeHtml(p.name).replace(/'/g, "\\'")}')">删除</button>
+      </div>`
+    ).join("");
+  } catch (e) {
+    box.textContent = String(e);
+  }
+}
+
+async function addProvider() {
+  const msg = document.getElementById("pv-msg");
+  const payload = {
+    name: document.getElementById("pv-name").value.trim(),
+    base_url: document.getElementById("pv-base").value.trim(),
+    model: document.getElementById("pv-model").value.trim(),
+    api_key: document.getElementById("pv-key").value.trim(),
+  };
+  if (!payload.name || !payload.base_url) {
+    msg.className = "err";
+    msg.textContent = "名称和接口地址必填。";
+    return;
+  }
+  try {
+    const res = await request("/api/providers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    msg.className = res.ok ? "ok" : "err";
+    msg.textContent = res.message;
+    if (res.ok) {
+      ["pv-name", "pv-base", "pv-model", "pv-key"].forEach(id => document.getElementById(id).value = "");
+      loadProviders();
+    }
+  } catch (e) {
+    msg.className = "err";
+    msg.textContent = String(e);
+  }
+}
+
+async function removeProvider(name) {
+  try {
+    await request("/api/providers?name=" + encodeURIComponent(name), { method: "DELETE" });
+    loadProviders();
+  } catch (e) {
+    alert(String(e));
+  }
+}
+
 // ===== 分析前对话 =====
 let chatHistory = [];
 
@@ -623,6 +699,7 @@ loadSites();
 loadResults();
 loadUserFiles();
 loadModels();
+loadProviders();
 loadDoctor();
 </script>
 </body>

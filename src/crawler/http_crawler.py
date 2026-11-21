@@ -59,7 +59,7 @@ class HTTPCrawler(Crawler):
             self.last_skip_reason = f"非 HTML 页面（{content_type or '未知类型'}）"
             return None
 
-        html = response.text
+        html = self._decode(response)
         title = self._extract_title(html)
         content = self._extract_content(html)
 
@@ -88,6 +88,41 @@ class HTTPCrawler(Crawler):
         if elapsed < self.settings.rate_limit_seconds:
             time.sleep(self.settings.rate_limit_seconds - elapsed)
         self._last_fetch_at = time.monotonic()
+
+    @staticmethod
+    def _decode(response) -> str:
+        """按响应头或页面 meta 声明的编码解码网页，避免中文站点乱码。
+
+        很多国内站点不带 charset 或声明为 GBK，直接按 UTF-8 解码会出现乱码，
+        导致标题、正文变成“���ǿ���”这类字符。
+        """
+        import re
+
+        raw = response.content
+        charset = ""
+        content_type = response.headers.get("content-type", "")
+        match = re.search(r"charset=([\w-]+)", content_type, re.I)
+        if match:
+            charset = match.group(1)
+
+        if not charset:
+            head = raw[:2048].decode("ascii", errors="ignore")
+            meta = re.search(r'charset=["\']?([\w-]+)', head, re.I)
+            if meta:
+                charset = meta.group(1)
+
+        candidates = [c for c in (charset, "utf-8", "gb18030") if c]
+
+        for encoding in candidates:
+            try:
+                text = raw.decode(encoding, errors="strict")
+            except (UnicodeDecodeError, LookupError):
+                continue
+            if encoding.lower() in ("gbk", "gb2312"):
+                text = raw.decode("gb18030", errors="replace")
+            return text
+
+        return raw.decode("utf-8", errors="replace")
 
     # ===== 正文提取 =====
 

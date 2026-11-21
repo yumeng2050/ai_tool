@@ -167,6 +167,24 @@ def cmd_list_sites(settings: AppSettings) -> int:
     return 0
 
 
+def build_llm(settings: AppSettings, step: str | None = None):
+    """按阶段选择模型，并挂上备用来源（主模型失败自动切换）。"""
+    from dataclasses import replace
+
+    from src.config.model_choice import model_for_step
+    from src.config.providers import enabled_extras
+    from src.llm import FallbackProvider
+
+    if step:
+        settings = replace(settings, llm_model=model_for_step(settings, step))
+
+    primary = create_llm_provider(settings)
+    extras = enabled_extras(settings)
+    if extras:
+        return FallbackProvider(primary, settings, extras)
+    return primary
+
+
 def build_pipeline(settings: AppSettings, step: str | None = None) -> Pipeline:
     """装配当前已实现的组件：模型、仓储、抓取器、渠道发现器、分析器。
 
@@ -180,7 +198,7 @@ def build_pipeline(settings: AppSettings, step: str | None = None) -> Pipeline:
         model = model_for_step(settings, step)
         settings = replace(settings, llm_model=model)
 
-    llm = create_llm_provider(settings)
+    llm = build_llm(settings, step)
     return Pipeline(
         settings=settings,
         llm=llm,
