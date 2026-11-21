@@ -2,7 +2,7 @@
 
 基于本地大模型的自动化资料收集与整理工具：给定关注对象与资料类型，由 AI 协助发现信息渠道、抓取并分析网页资料，按时间增量更新，最终输出带来源溯源的整理结果。
 
-> 本项目处于初始规划阶段，下文技术方案为初步设计，后续随开发迭代调整。
+> 项目已完成分层代码骨架（接口与编排就绪，具体实现逐步补齐），架构细节见 [`docs/architecture.md`](./docs/architecture.md)。
 
 ## 一、项目构思
 
@@ -35,27 +35,32 @@
 - 在代码中封装统一的模型客户端，便于在本地模型、其他本地模型或云端接口之间切换。
 - 9B 参数量模型能力有限，复杂归纳任务可预留切换到更大模型的能力；提示词模板分层维护，便于调优。
 
-## 三、建议目录结构
+## 三、代码目录结构
 
 ```
 ai_tool/
 ├── README.md              # 项目说明（本文件）
-├── .gitignore
-├── requirements.txt       # Python 依赖（骨架阶段补充）
+├── requirements.txt       # Python 依赖
 ├── .env.example           # 配置模板（模型端点、模型名等）
-├── config/                # 配置：目标对象、资料类型、模型参数、路径
+├── docs/
+│   └── architecture.md    # 分层架构、模块职责与扩展点说明
 ├── src/
-│   ├── llm/               # 模型客户端封装（OpenAI 兼容）
-│   ├── collector/         # 渠道发现、链接收集
-│   ├── crawler/           # 网页抓取与正文提取
-│   ├── analyzer/          # 资料分析、二次（增量）分析、归纳去重
-│   └── storage/           # 站点台账、目录与文件命名管理
-├── data/                  # 运行数据（不纳入 Git）
-│   ├── sites/             # 站点台账（未分析 / 已分析）
-│   ├── raw/               # 抓取的原始资料
-│   └── output/            # 整理后的资料
-└── docs/                  # 设计文档、提示词模板等
+│   ├── cli.py             # 命令行入口（doctor / discover / collect / analyze ...）
+│   ├── config/            # 配置加载（环境变量 / .env）
+│   ├── models/            # 领域数据模型（Target / SiteRecord / RawDocument ...）
+│   ├── llm/               # 模型接入：抽象接口 + LM Studio 实现 + 工厂注册
+│   ├── collector/         # 渠道发现（抽象接口）
+│   ├── crawler/           # 网页抓取与正文提取（抽象接口）
+│   ├── analyzer/          # 资料分析、增量分析（抽象接口）
+│   ├── storage/           # 站点台账仓储接口 + 文件路径命名约定
+│   └── pipeline/          # 流程编排，串联各阶段并注入组件
+└── data/                  # 运行数据（不纳入 Git，含 .gitkeep 占位）
+    ├── sites/             # 站点台账
+    ├── raw/               # 抓取的原始资料
+    └── output/            # 整理后的资料
 ```
+
+各层均面向抽象接口编程，模型提供方、抓取方式、存储实现、分析策略均可独立替换，详见 [架构文档](./docs/architecture.md)。
 
 ## 四、核心设计要点
 
@@ -90,7 +95,7 @@ ai_tool/
 - 使用 HTTP 客户端抓取页面，配合正文提取工具去除导航、广告等噪声；
 - 遵守目标站点的访问规则，控制请求频率，避免高频抓取。
 
-## 五、快速开始（规划）
+## 五、快速开始
 
 1. 准备 Python 3.12 虚拟环境：
 
@@ -99,7 +104,7 @@ ai_tool/
    .\.venv\Scripts\Activate.ps1
    ```
 
-2. 安装依赖（依赖清单在骨架阶段补充到 `requirements.txt`）：
+2. 安装依赖：
 
    ```powershell
    pip install -r requirements.txt
@@ -107,15 +112,21 @@ ai_tool/
 
 3. 打开 LM Studio，加载 Qwen 9B 模型并启动 Local Server（默认 `http://localhost:1234/v1`）。
 4. 复制 `.env.example` 为 `.env`，填写模型端点、模型名等配置（`.env` 不纳入 Git）。
-5. 在 VS Code 中开发与运行。
+5. 检查配置与环境是否就绪：
+
+   ```powershell
+   python -m src.cli doctor
+   ```
+
+6. 在 VS Code 中开发与运行；其余子命令（`discover` / `collect` / `analyze` / `incremental`）待对应组件实现后接入。
 
 ## 六、开发路线图
 
-- [ ] 项目骨架、配置加载与目录初始化
-- [ ] LLM 客户端封装与本地模型连通性测试
+- [x] 项目骨架、配置加载、分层抽象与目录初始化
+- [ ] LLM 客户端连通性测试（`doctor` 发送测试消息）
 - [ ] 站点台账（SQLite）与状态管理
 - [ ] 网页抓取与正文提取
 - [ ] 渠道发现：LLM 生成候选站点并入库
 - [ ] 资料分析与增量（二次）分析
 - [ ] 结果归纳整理与来源溯源
-- [ ] 命令行 / 交互入口
+- [ ] 命令行 / 交互入口串联通车
