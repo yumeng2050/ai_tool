@@ -1,0 +1,49 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 打包/分发
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+
+# 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+
+# ===== 环境变量与密钥 =====
+.env
+.env.*
+!.env.example
+
+# ===== 日志 =====
+*.log
+logs/
+
+# ===== 运行数据（抓取的原始资料、台账、分析结果等）=====
+data/
+*.sqlite
+*.sqlite3
+*.db
+
+# ===== 缓存与临时文件 =====
+.cache/
+*.tmp
+*.bak
+*.swp
+
+# ===== IDE / 编辑器 =====
+.vscode/
+.idea/
+*.iml
+
+# ===== 操作系统 =====
+Thumbs.db
+Desktop.ini
+.DS_Store
