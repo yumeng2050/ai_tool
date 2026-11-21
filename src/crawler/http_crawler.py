@@ -15,6 +15,7 @@ import httpx
 
 from src.config.settings import AppSettings
 from src.crawler.base import Crawler
+from src.crawler.quality import check_document
 from src.models.domain import RawDocument, SiteRecord
 
 logger = logging.getLogger(__name__)
@@ -23,8 +24,6 @@ DEFAULT_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
-# 正文最短字符数，短于此视为无有效内容
-MIN_CONTENT_LENGTH = 50
 
 
 class HTTPCrawler(Crawler):
@@ -33,10 +32,13 @@ class HTTPCrawler(Crawler):
     def __init__(self, settings: AppSettings) -> None:
         self.settings = settings
         self._last_fetch_at = 0.0
+        # 最近一次 fetch 被跳过的原因，供上层展示
+        self.last_skip_reason = ""
 
     # ===== 抓取 =====
 
     def fetch(self, site: SiteRecord) -> RawDocument | None:
+        self.last_skip_reason = ""
         self._throttle()
         try:
             response = httpx.get(
@@ -48,18 +50,28 @@ class HTTPCrawler(Crawler):
             response.raise_for_status()
         except httpx.HTTPError as exc:
             logger.warning("抓取失败 %s: %s", site.url, exc)
+            self.last_skip_reason = f"抓取失败：{exc}"
             return None
 
         content_type = response.headers.get("content-type", "")
         if "html" not in content_type and "xhtml" not in content_type:
             logger.info("非 HTML 页面，跳过 %s（%s）", site.url, content_type)
+            self.last_skip_reason = f"非 HTML 页面（{content_type or '未知类型'}）"
             return None
 
         html = response.text
         title = self._extract_title(html)
         content = self._extract_content(html)
-        if len(content.strip()) < MIN_CONTENT_LENGTH:
-            logger.info("正文过短，跳过 %s", site.url)
+
+        ok, reason = check_document(
+            url=site.url,
+            title=title,
+            content=content,
+            min_chars=self.settings.min_content_chars,
+        )
+        if not ok:
+            logger.info("内容校验未通过，跳过 %s：%s", site.url, reason)
+            self.last_skip_reason = reason
             return None
 
         return RawDocument(

@@ -62,17 +62,26 @@ class AppSettings:
     raw_dir: Path = field(init=False)
     output_dir: Path = field(init=False)
     sites_dir: Path = field(init=False)
+    user_files_dir: Path = field(init=False)
 
-    # ===== 抓取策略（预留）=====
+    # ===== 抓取策略 =====
     rate_limit_seconds: float = 1.5
     max_depth: int = 1
+    # 正文最少有效字符数，低于此值视为无有效内容
+    min_content_chars: int = 300
 
     def __post_init__(self) -> None:
         self.data_dir = Path(self.data_dir)
         self.raw_dir = self.data_dir / "raw"
         self.output_dir = self.data_dir / "output"
         self.sites_dir = self.data_dir / "sites"
-        for directory in (self.raw_dir, self.output_dir, self.sites_dir):
+        self.user_files_dir = self.data_dir / "user_files"
+        for directory in (
+            self.raw_dir,
+            self.output_dir,
+            self.sites_dir,
+            self.user_files_dir,
+        ):
             directory.mkdir(parents=True, exist_ok=True)
 
     @classmethod
@@ -98,4 +107,5 @@ class AppSettings:
             data_dir=Path(get("DATA_DIR", str(DEFAULT_DATA_DIR)) or DEFAULT_DATA_DIR),
             rate_limit_seconds=float(get("RATE_LIMIT_SECONDS", "1.5") or 1.5),
             max_depth=int(get("MAX_DEPTH", "1") or 1),
+            min_content_chars=int(get("MIN_CONTENT_CHARS", "300") or 300),
         )

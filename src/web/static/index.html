@@ -57,6 +57,15 @@
     button.secondary { background: #eef1f5; color: var(--text); }
     button.secondary:hover { background: #e2e7ee; }
     button:disabled { opacity: .5; cursor: not-allowed; }
+    textarea {
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: Consolas, monospace;
+      resize: vertical;
+      width: 100%;
+    }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
     th { color: var(--muted); font-weight: 600; }
@@ -116,6 +125,39 @@
       <button onclick="discover()">发现站点</button>
     </div>
     <div id="discover-msg" class="hint" style="margin-top:10px;"></div>
+  </div>
+
+  <!-- 手工添加网址 -->
+  <div class="card">
+    <h2>手工添加网址</h2>
+    <div class="row" style="align-items:flex-start;">
+      <div class="field" style="flex:1; min-width:260px;">
+        <label>网址（一行一个，可粘贴多条）</label>
+        <textarea id="manual-urls" rows="4" placeholder="https://example.com/page1&#10;https://example.com/page2"></textarea>
+      </div>
+      <div class="field">
+        <label>对象名（默认沿用上方）</label>
+        <input type="text" id="manual-target" placeholder="留空则用上方的对象名">
+      </div>
+      <div class="field">
+        <label>类型（可选）</label>
+        <input type="text" id="manual-category" placeholder="留空则用上方的类型">
+      </div>
+      <button onclick="addSites()">添加网址</button>
+    </div>
+    <div id="manual-msg" class="hint" style="margin-top:10px;"></div>
+  </div>
+
+  <!-- 我的资料文件夹 -->
+  <div class="card">
+    <h2>我的资料文件夹</h2>
+    <div class="row" style="margin-bottom:10px;">
+      <button class="secondary" onclick="openUserDir()">打开文件夹</button>
+      <button class="secondary" onclick="loadUserFiles()">刷新</button>
+      <span id="user-files-dir" class="hint"></span>
+    </div>
+    <div id="user-files-list" class="hint">尚未读取。</div>
+    <div class="hint" style="margin-top:8px;">把你自己收集的资料（txt / md / pdf / docx）放进这个目录，点「归纳分析」时会和网页抓取的资料一起交给模型。</div>
   </div>
 
   <!-- 站点台账 -->
@@ -266,12 +308,76 @@ async function collect() {
   try {
     const res = await request("/api/collect", { method: "POST" });
     log(res.message, res.ok ? "ok" : "err");
-    (res.data || []).forEach(d => log(`  - ${d.title} → ${d.file_path}`));
+    (res.data || []).forEach(d => log(`  ✓ ${d.title} → ${d.file_path}`));
+    (res.skipped || []).forEach(s => log(`  ✕ ${s.url} —— ${s.reason}`, "muted"));
     loadSites();
   } catch (e) {
     log(String(e), "err");
   } finally {
     btn.disabled = false;
+  }
+}
+
+// ===== 手工添加网址 =====
+async function addSites() {
+  const urlsText = document.getElementById("manual-urls").value.trim();
+  const target = document.getElementById("manual-target").value.trim() || document.getElementById("target").value.trim();
+  const category = document.getElementById("manual-category").value.trim() || document.getElementById("category").value.trim();
+  const msg = document.getElementById("manual-msg");
+
+  if (!target) {
+    msg.className = "err";
+    msg.textContent = "对象名必填（可填在本卡片或上方表单里）。";
+    return;
+  }
+  const urls = urlsText.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  if (!urls.length) {
+    msg.className = "err";
+    msg.textContent = "请先粘贴至少一个网址。";
+    return;
+  }
+
+  msg.className = "hint";
+  msg.textContent = "添加中…";
+  try {
+    const res = await request("/api/add-sites", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target, category, urls }),
+    });
+    msg.className = res.ok ? "ok" : "err";
+    msg.textContent = res.message;
+    if (res.ok) {
+      document.getElementById("manual-urls").value = "";
+      loadSites();
+    }
+  } catch (e) {
+    msg.className = "err";
+    msg.textContent = String(e);
+  }
+}
+
+// ===== 我的资料文件夹 =====
+async function loadUserFiles() {
+  try {
+    const res = await request("/api/user-files");
+    const d = res.data || {};
+    document.getElementById("user-files-dir").textContent = d.dir || "";
+    const files = d.files || [];
+    document.getElementById("user-files-list").innerHTML = files.length
+      ? files.map(f => `${escapeHtml(f.name)} <span class="muted">(${(f.size/1024).toFixed(1)} KB)</span>`).join("<br>")
+      : '<span class="muted">目录为空，把资料放进去后点「刷新」。</span>';
+  } catch (e) {
+    document.getElementById("user-files-list").textContent = String(e);
+  }
+}
+
+async function openUserDir() {
+  try {
+    const res = await request("/api/open-user-files", { method: "POST" });
+    if (!res.ok) alert(res.message);
+  } catch (e) {
+    alert(String(e));
   }
 }
 
@@ -326,6 +432,7 @@ function escapeHtml(text) {
 // 页面加载：拉取台账与历史结果，自动检查一次模型状态
 loadSites();
 loadResults();
+loadUserFiles();
 loadDoctor();
 </script>
 </body>

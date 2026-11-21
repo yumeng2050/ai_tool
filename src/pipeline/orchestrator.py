@@ -29,6 +29,7 @@ from src.models.domain import (
 from src.storage import (
     SiteRepository,
     load_raw_documents,
+    load_user_documents,
     save_analysis_result,
     save_raw_document,
 )
@@ -93,21 +94,40 @@ class Pipeline:
         return documents
 
     def collect_and_save(self) -> list[RawDocument]:
-        """抓取所有待分析站点，落盘原始资料并更新台账来源文件清单。"""
+        """抓取所有待抓取站点，落盘原始资料并更新台账来源文件清单。"""
+        saved, _skipped = self.collect_with_report()
+        return saved
+
+    def collect_with_report(
+        self,
+    ) -> tuple[list[RawDocument], list[dict]]:
+        """抓取待分析站点，同时返回被跳过的站点与原因。
+
+        - 已有来源文件的站点视为已抓取，不再重复抓取；
+        - 抓取失败或内容校验未通过的站点记录原因，便于前端展示。
+        """
         crawler = self._require(self.crawler, "Crawler")
         repo = self._require(self.repository, "SiteRepository")
 
         saved: list[RawDocument] = []
+        skipped: list[dict] = []
         for site in repo.list_by_status(SiteStatus.PENDING):
+            if site.source_files:
+                skipped.append({"url": site.url, "reason": "已抓取过，跳过重复抓取"})
+                continue
+
             document = crawler.fetch(site)
             if document is None:
+                reason = getattr(crawler, "last_skip_reason", "") or "无可提取正文"
+                skipped.append({"url": site.url, "reason": reason})
                 continue
+
             save_raw_document(self.settings, document)
             if document.file_path and document.file_path not in site.source_files:
                 site.source_files.append(document.file_path)
             repo.update(site)
             saved.append(document)
-        return saved
+        return saved, skipped
 
     # ===== 阶段三：分析归纳 =====
 
@@ -117,22 +137,27 @@ class Pipeline:
         return analyzer.analyze(documents)
 
     def analyze_all(self) -> Optional[AnalysisResult]:
-        """读取 ``data/raw/`` 全部原始资料，归纳整理并保存结果，更新台账状态。
+        """读取 ``data/raw/`` 与用户自备资料，归纳整理并保存结果，更新台账状态。
+
+        网页抓取资料与 ``data/user_files/`` 下的用户资料会一起参与归纳；
+        本地文件不对应台账站点，只做来源标注。
 
         :return: 分析结果；没有可分析资料时返回 ``None``
         """
         analyzer = self._require(self.analyzer, "DocumentAnalyzer")
         repo = self._require(self.repository, "SiteRepository")
 
-        documents = load_raw_documents(self.settings)
+        web_documents = load_raw_documents(self.settings)
+        user_documents = load_user_documents(self.settings)
+        documents = web_documents + user_documents
         if not documents:
             return None
 
         result = analyzer.analyze(documents)
         save_analysis_result(self.settings, result)
 
-        # 把这批资料对应的站点标记为已分析，记录分析时间
-        analyzed_urls = {doc.site_url for doc in documents}
+        # 只把网页抓取资料对应的站点标记为已分析，本地文件不涉及台账
+        analyzed_urls = {doc.site_url for doc in web_documents}
         for url in analyzed_urls:
             site = repo.get(url)
             if site is not None:

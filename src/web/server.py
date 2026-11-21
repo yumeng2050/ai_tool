@@ -59,6 +59,14 @@ class DiscoverRequest(BaseModel):
     hints: list[str] = Field(default_factory=list)
 
 
+class AddSitesRequest(BaseModel):
+    """手工添加网址：支持一次粘贴多条（换行分隔）。"""
+
+    target: str
+    category: str = ""
+    urls: list[str] = Field(default_factory=list)
+
+
 # ===== 模型状态检查（结构化版 doctor）=====
 
 def _check_doctor() -> dict:
@@ -73,6 +81,8 @@ def _check_doctor() -> dict:
             "sites": settings.sites_dir.exists(),
         },
         "site_count": len(build_sqlite_repository(settings).list_all()),
+        "min_content_chars": settings.min_content_chars,
+        "user_files_dir": str(settings.user_files_dir),
         "reachable": False,
         "models": [],
         "model_matched": False,
@@ -153,6 +163,80 @@ def api_discover(req: DiscoverRequest) -> JSONResponse:
     }
 
 
+@app.post("/api/add-sites")
+def api_add_sites(req: AddSitesRequest) -> JSONResponse:
+    """手工登记一个或多个网址到站点台账。"""
+    target_name = req.target.strip()
+    if not target_name:
+        return JSONResponse({"ok": False, "message": "对象名必填。"}, status_code=400)
+
+    category = req.category.strip() or "未分类"
+    repo = build_sqlite_repository(settings)
+
+    added, duplicated, invalid = [], [], []
+    for raw in req.urls:
+        url = (raw or "").strip()
+        if not url:
+            continue
+        if not url.startswith(("http://", "https://")):
+            invalid.append(url)
+            continue
+        if repo.get(url) is not None:
+            duplicated.append(url)
+            continue
+
+        repo.add(
+            SiteRecord(url=url, target=target_name, category=category, note="手工添加")
+        )
+        added.append(url)
+
+    message = f"新增 {len(added)} 个站点。"
+    if duplicated:
+        message += f" 已有 {len(duplicated)} 个，跳过。"
+    if invalid:
+        message += f" {len(invalid)} 个网址格式不正确，已忽略。"
+
+    return {
+        "ok": True,
+        "message": message,
+        "data": {
+            "added": added,
+            "duplicated": duplicated,
+            "invalid": invalid,
+        },
+    }
+
+
+@app.get("/api/user-files")
+def api_user_files() -> dict:
+    """列出用户自备资料目录中的文件。"""
+    directory = settings.user_files_dir
+    files = []
+    if directory.exists():
+        for path in sorted(directory.iterdir()):
+            if path.is_file() and not path.name.startswith(("~$", ".")):
+                files.append({"name": path.name, "size": path.stat().st_size})
+    return {
+        "ok": True,
+        "data": {
+            "dir": str(directory),
+            "files": files,
+            "supported": [".txt", ".md", ".pdf", ".docx"],
+        },
+    }
+
+
+@app.post("/api/open-user-files")
+def api_open_user_files() -> JSONResponse:
+    """在本机文件管理器中打开用户资料目录。"""
+    import os
+
+    directory = settings.user_files_dir
+    directory.mkdir(parents=True, exist_ok=True)
+    os.startfile(str(directory))  # noqa: S606 - 仅本机打开资源管理器
+    return {"ok": True, "message": f"已打开目录：{directory}"}
+
+
 @app.get("/api/sites")
 def api_sites() -> dict:
     """列出站点台账。"""
@@ -164,12 +248,17 @@ def api_sites() -> dict:
 def api_collect() -> dict:
     """抓取所有待分析站点，保存原始资料并更新台账。"""
     pipeline = build_pipeline(settings)
-    saved = pipeline.collect_and_save()
+    saved, skipped = pipeline.collect_with_report()
     data = [
         {"site_url": doc.site_url, "title": doc.title, "file_path": doc.file_path}
         for doc in saved
     ]
-    return {"ok": True, "message": f"共保存 {len(saved)} 份原始资料。", "data": data}
+    return {
+        "ok": True,
+        "message": f"共保存 {len(saved)} 份原始资料，跳过 {len(skipped)} 个站点。",
+        "data": data,
+        "skipped": skipped,
+    }
 
 
 @app.post("/api/analyze")
